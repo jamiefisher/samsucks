@@ -14,6 +14,22 @@
   <img src="assets/readme/home.png" alt="SamSUCKS home screen" width="880">
 </p>
 
+> **This is a fork** of [rfaile313/samsucks](https://github.com/rfaile313/samsucks).
+> It adds:
+>
+> - **2019 TV support (Tizen 5.0).** Tested on a 2019 82" RU9000. Set `BUNDLE=1` in `.env`
+>   (see [Install](#install)); the other Tizen 5.0 fixes are always on.
+> - **Every server on your account at once.** Libraries from all servers appear in the
+>   top nav, search covers all of them, and **Settings → Servers** turns each one on or off.
+>   Home rows come from your first server.
+> - **A filter bar in every library.** Press ▲ from the top row of posters: sort,
+>   unwatched, genre, decade and content rating. Each library remembers its choices.
+> - **Richer details pages.** Rotten Tomatoes (critics and audience), IMDb and TMDB
+>   scores, and a **Cast & crew** row. Press OK on someone to see everything they're in.
+> - **Background art behind library grids and person pages.**
+>
+> See [What this fork changes](#what-this-fork-changes) for the details.
+
 The official Plex app on Samsung TVs is painfully slow. The same library flies on a
 Fire TV or an Apple TV, so the TV isn't the problem; the app is.
 
@@ -38,14 +54,14 @@ SamSUCKS is a from-scratch Plex client for Samsung's Tizen TVs, built for speed:
 ## Install
 
 You need:
-- a Samsung smart TV (tested on a 2022 Q60B; 2020 or newer should work),
+- a Samsung smart TV (tested on a 2022 Q60B and a 2019 RU9000; 2019 or newer should work),
 - a Mac or Linux computer on the same network as the TV,
 - a Plex Media Server.
 
 **1. Download SamSUCKS**
 
 ```sh
-git clone https://github.com/rfaile313/samsucks.git
+git clone https://github.com/jamiefisher/samsucks.git
 cd samsucks
 ```
 
@@ -60,7 +76,18 @@ network, and creates a signing certificate. If Developer Mode isn't turned on ye
 it stops and tells you exactly what to do, including your computer's IP address.
 The steps are also below. Run it again afterwards, and it picks up where it left off.
 
-**3. Install it on the TV**
+**3. 2019 TVs only: turn on bundling**
+
+2019 models run Tizen 5.0, whose browser can't load the app's JavaScript modules from
+the TV's storage. Add this line to `.env`, and `deploy.sh` will combine them into one
+script with [esbuild](https://esbuild.github.io/) (fetched automatically by `npx`, so
+you need Node.js installed):
+
+```sh
+BUNDLE=1
+```
+
+**4. Install it on the TV**
 
 ```sh
 ./scripts/deploy.sh
@@ -109,13 +136,74 @@ choose **Add to Home**.
 | Back | Go back (while watching, the first press hides the controls) |
 | ▼ while watching | Audio and subtitle tracks |
 | ◀ ▶ while watching | Seek; hold to go faster |
+| ▲ from the top row of a library | Filter bar: ◀ ▶ to pick, OK to open, ▼ back to the posters |
+| ▼ on a movie or show page | Seasons, episodes, then **Cast & crew**; OK on a person opens their page |
 | Yellow | Change the sort order in a library |
 | CH ▲ / CH ▼ | Jump by letter in a library |
 
 What's in it: home rows (Continue Watching, On Deck, Recently Added…), full library
 grids, search with the TV keyboard, movie and show pages with seasons and episodes,
 resume and mark watched, audio and subtitle picker (including external `.srt` files),
-up-next autoplay, and watch progress synced back to Plex.
+up-next autoplay, and watch progress synced back to Plex. This fork adds every server
+at once, library filters, ratings, cast and person pages.
+
+## What this fork changes
+
+<details>
+<summary><b>Tizen 5.0 (2019 TVs)</b></summary>
+
+| Problem on Tizen 5.0 (Chromium 63) | Fix |
+| --- | --- |
+| ES module `import`s from `file://` fail, so the app stopped at the splash screen | `BUNDLE=1` (or `deploy.sh --bundle`) bundles everything into one classic script, targeting Chrome 63 |
+| The installer rejected the app | `config.xml` asks for `required_version="5.0"` instead of 6.5 |
+| No `AbortController`, so request timeouts never fired and a dead server address hung for about 35 s | `request()` races each fetch against its own timer |
+| `-webkit-mask-composite: source-in` also applied to the bottom mask layer, which hid all hero art | `source-in, source-over` |
+
+Everything else runs unchanged on Tizen 5.0. Without bundling it would still be modules
+plus `modulepreload`, exactly as upstream.
+</details>
+
+<details>
+<summary><b>Multiple servers</b></summary>
+
+- At sign-in the app connects to every server on the account. Upstream asked you to pick
+  one. Servers that don't answer are skipped.
+- Every item remembers which server it came from (`item._srv`), and `serverOf(item)` in
+  `session.js` sends images, playback, progress and watched state to that server.
+- The nav lists libraries from every server. When two servers have a library with the
+  same name, each shows its server's name next to it.
+- Home rows (Continue Watching, On Deck, Recently Added…) come from the first server,
+  which is your own server if you have one. Search runs on every server and merges
+  results of the same type into one row.
+- All connection tiers (LAN HTTP, LAN HTTPS, remote, relay) are tried at once, but the
+  fastest kind still wins. A shared server whose LAN addresses can't be reached connects
+  in about 4 s instead of waiting out each tier in turn.
+- **Settings → Servers** lists every server with On/Off; at least one always stays on.
+- An install that already had one saved server finds the others on its next start.
+</details>
+
+<details>
+<summary><b>Library filter bar</b></summary>
+
+Press ▲ from the top row of any Movies or TV library. The chips are **Sort** (A–Z,
+Recently added, Release date, Rating), **Unwatched**, **Genre**, **Decade** and **Rating**
+(content rating), plus **Clear** when any filter is on. Genre, decade and rating values
+come from that library on the server. Filters are saved per library, and CH ▲/▼ letter
+jumps respect them.
+</details>
+
+<details>
+<summary><b>Details pages, cast and people</b></summary>
+
+- Scores come from Plex's `Rating[]` list on newer servers, or from `rating` /
+  `audienceRating` on older ones. Each one gets its source's icon: Rotten Tomatoes
+  tomato or splat (critics), popcorn upright or spilled (audience), IMDb, and TMDB.
+  Which sources appear depends on the metadata Plex has for that title.
+- **Cast & crew** lists actors (with character names) and directors as round photos.
+- A person's page searches every library on that server with Plex's `actor=` /
+  `director=` filter, and lists their titles newest first, one row per library.
+  Other servers aren't searched, because each server numbers people differently.
+</details>
 
 ## Why it's fast
 
@@ -180,9 +268,10 @@ scripts/        setup.sh (one-time) and deploy.sh (build + install)
 tools/          dev server, TV eval, network remote
 ```
 
-There's no bundler. The TV's browser (Chromium 69+ on Tizen 5.5+) runs ES modules
+There's no bundler by default. The TV's browser (Chromium 69+ on Tizen 5.5+) runs ES modules
 natively, and `deploy.sh` adds `<link rel="modulepreload">` tags so every module loads
-in parallel (about 0.9 s cold start, versus 0.8 s for a minified bundle).
+in parallel (about 0.9 s cold start, versus 0.8 s for a minified bundle). On Tizen 5.0,
+`BUNDLE=1` makes it one esbuild bundle instead (see [What this fork changes](#what-this-fork-changes)).
 </details>
 
 <details>
@@ -218,6 +307,8 @@ for LG TVs. Fonts: [Inter](https://rsms.me/inter/) and
 License). QR codes: [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator)
 by Kazuhiko Arase (MIT).
 
+SamSUCKS was created by [rfaile313](https://github.com/rfaile313/samsucks); this fork
+adds Tizen 5.0 support, multiple servers, library filters, ratings and cast.
 SamSUCKS is an independent project, not affiliated with Plex or Samsung.
 
 ## License
