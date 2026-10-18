@@ -1,10 +1,9 @@
 // Sign in with a plex.tv/link code (or by scanning the QR code with a phone),
-// then pick a server.
+// then connect to every server on the account.
 import qrcode from '../vendor/qrcode.js';
 import { h, setText } from '../util/dom.js';
-import { createPin, checkPin, authAppUrl, getUser, getServers, connect } from '../plex/auth.js';
-import { signIn, useServer, session } from '../session.js';
-import * as router from '../router.js';
+import { createPin, checkPin, authAppUrl, getUser, getServers } from '../plex/auth.js';
+import { signIn, connectAll, session } from '../session.js';
 import { error, log } from '../util/log.js';
 import { useAmbience } from '../ui/backdrop.js';
 
@@ -27,6 +26,7 @@ export function LoginScreen({ onDone }) {
 
   let timer = 0;
   let alive = true;
+  let retry = null;  // signed in, but no server answered: OK tries again
 
   async function start() {
     clearTimeout(timer);
@@ -69,14 +69,15 @@ export function LoginScreen({ onDone }) {
       setText(status, 'No Plex Media Servers on this account.');
       return;
     }
-    if (servers.length === 1) {
-      setText(status, 'Connecting to ' + servers[0].name + '…');
-      const uri = await connect(servers[0]);
-      useServer(servers[0], uri);
-      onDone();
+    setText(status, 'Connecting to ' + (servers.length > 1 ? servers.length + ' servers' : servers[0].name) + '…');
+    try {
+      await connectAll(servers);
+    } catch (e) {
+      setText(status, e.message + '. Press OK to try again.');
+      retry = () => finish(token).catch(err => setText(status, err.message));
       return;
     }
-    router.replace(ServerPicker({ servers, onDone }));
+    onDone();
   }
 
   start();
@@ -86,49 +87,17 @@ export function LoginScreen({ onDone }) {
     name: 'login',
     onShow() { ambience.restore(); },
     onKey(action) {
-      if (action === 'enter') { start(); return true; }
+      if (action === 'enter') {
+        const r = retry;
+        retry = null;
+        if (r) r(); else start();
+        return true;
+      }
       return false;
     },
     destroy() {
       alive = false;
       clearTimeout(timer);
-    },
-  };
-}
-
-export function ServerPicker({ servers, onDone }) {
-  const el = h('div', 'screen picker');
-  const ambience = useAmbience();
-  h('h1', 'picker-title', el).textContent = 'Choose a server';
-  const list = h('div', 'picker-list', el);
-  const status = h('div', 'login-status', el);
-  const buttons = servers.map(s => {
-    const b = h('div', 'btn btn-wide', list);
-    h('span', '', b).textContent = s.name;
-    h('small', '', b).textContent = s.owned ? 'Your server' : 'Shared by ' + (s.sourceTitle || 'a friend');
-    return b;
-  });
-  let index = 0;
-  const render = () => buttons.forEach((b, i) => b.classList.toggle('focus', i === index));
-  render();
-
-  return {
-    el,
-    name: 'picker',
-    onShow() { ambience.restore(); },
-    onKey(action) {
-      if (action === 'up' || action === 'down') {
-        index = Math.max(0, Math.min(servers.length - 1, index + (action === 'down' ? 1 : -1)));
-        render();
-        return true;
-      }
-      if (action === 'enter') {
-        const s = servers[index];
-        setText(status, 'Connecting to ' + s.name + '…');
-        connect(s).then(uri => { useServer(s, uri); onDone(); }, e => setText(status, e.message));
-        return true;
-      }
-      return false;
     },
   };
 }

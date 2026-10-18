@@ -5,6 +5,7 @@ import { LibraryScreen } from './screens/library.js';
 import { PlayerScreen } from './screens/player.js';
 import { SearchScreen } from './screens/search.js';
 import { SettingsScreen } from './screens/settings.js';
+import { PersonScreen } from './screens/person.js';
 
 export function openItem(item) {
   if (item.type === 'clip') { playItem(item); return; }
@@ -22,6 +23,10 @@ export function playItem(item, opts) {
 
 export function openLibrary(section) {
   router.push(LibraryScreen(section));
+}
+
+export function openPerson(person) {
+  router.push(PersonScreen(person));
 }
 
 export function openSearch() {

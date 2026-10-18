@@ -1,15 +1,17 @@
 // Home: hero for the focused item, nav bar, and Plex's home hubs as rows.
-// The last hub payload is cached so a cold start paints instantly.
+// Libraries from every connected server go in the nav; the rows (Continue
+// Watching, Recently Added...) come from the first server only.
+// The last payload is cached so a cold start paints instantly.
 import { h, setText, setTransform, toggleClass } from '../util/dom.js';
 import { Row } from '../ui/row.js';
 import { useAmbience, HeroArt } from '../ui/backdrop.js';
-import { session } from '../session.js';
+import { session, serverOf } from '../session.js';
 import { metaLine } from '../util/format.js';
 import { isFast } from '../input.js';
 import * as store from '../util/store.js';
 import * as icons from '../ui/icons.js';
 import { openItem, playItem, openLibrary, openSearch, openSettings } from '../nav.js';
-import { error, log } from '../util/log.js';
+import { error, log, warn } from '../util/log.js';
 
 const ROWS_TOP = 600;
 const NAV_PAD = 80; // wider than the 64px edge fade in app.css
@@ -19,7 +21,7 @@ function slimHub(hub) {
   const keep = ['ratingKey', 'key', 'type', 'title', 'grandparentTitle', 'parentTitle', 'year', 'thumb', 'art',
     'grandparentThumb', 'grandparentArt', 'parentThumb', 'index', 'parentIndex', 'duration', 'viewOffset',
     'viewCount', 'leafCount', 'viewedLeafCount', 'childCount', 'contentRating', 'audienceRating', 'summary',
-    'originallyAvailableAt', 'UltraBlurColors', 'grandparentRatingKey', 'parentRatingKey', 'Image'];
+    'originallyAvailableAt', 'UltraBlurColors', 'grandparentRatingKey', 'parentRatingKey', 'Image', '_srv'];
   return {
     hubIdentifier: hub.hubIdentifier, title: hub.title, type: hub.type,
     Metadata: hub.Metadata.map(m => {
@@ -55,7 +57,8 @@ export function HomeScreen() {
   const navEl = h('nav', 'nav', top);
   const navTrack = h('div', 'nav-track', navEl);
   const who = h('div', 'topbar-who', top);
-  setText(who, session.server ? session.server.name : '');
+  const servers = session.servers;
+  setText(who, servers.length > 1 ? servers.length + ' servers' : (session.server ? session.server.name : ''));
 
   const info = h('div', 'hero-info', el);
   const heroLogo = h('img', 'hero-logo', info);
@@ -86,11 +89,15 @@ export function HomeScreen() {
       .concat(sections.map(s => ({ label: s.title, id: 'section', section: s })))
       .concat([{ label: 'Search', id: 'search', icon: icons.search }, { label: 'Settings', id: 'settings', icon: icons.gear }]);
     navIndex = Math.min(navIndex, navItems.length - 1);
+    // Two servers both have "Movies": label those with their server.
+    const seen = {};
+    sections.forEach(s => { seen[s.title] = (seen[s.title] || 0) + 1; });
     navItems.forEach((n, i) => {
       if (n.icon && !navItems[i - 1].icon) h('i', 'nav-sep', navTrack);
       n.el = h('div', 'nav-item' + (n.icon ? ' nav-icon' : ''), navTrack);
-      if (n.icon) n.el.innerHTML = n.icon;
-      else h('span', '', n.el).textContent = n.label;
+      if (n.icon) { n.el.innerHTML = n.icon; return; }
+      h('span', '', n.el).textContent = n.label;
+      if (n.section && seen[n.label] > 1) h('small', '', n.el).textContent = serverOf(n.section).name;
     });
     renderNav();
   }
@@ -125,7 +132,7 @@ export function HomeScreen() {
   function showHero(item) {
     if (!item) return;
     const logoPath = clearLogo(item);
-    const server = session.server;
+    const server = serverOf(item);
     if (logoPath && item.type !== 'episode') {
       heroLogo.src = server.image(logoPath, 640, 200, { format: 'png' });
       heroLogo.style.display = '';
@@ -197,22 +204,35 @@ export function HomeScreen() {
     }
   }
 
+  const serverKey = servers.map(s => s.id).join(',');
+
   async function load() {
-    const server = session.server;
     loadedAt = Date.now();
-    try {
-      const [sections, hubs] = await Promise.all([server.sections(), server.hubs()]);
-      buildNav(sections);
-      setHubs(hubs);
-      store.set('homeCache', { server: server.id, sections, hubs: hubs.map(slimHub) });
-    } catch (e) {
-      error('home load failed', e);
-      if (!rows.length) setText(empty, 'Couldn\'t load from ' + server.name + '. Press OK to retry.');
+    // One slow or offline server shouldn't keep the others off Home.
+    const primary = session.server;
+    let failed = 0;
+    const settle = (s, p) => p.catch(e => { failed++; warn('home load failed on', s.name, e.message); return null; });
+    const [sectionLists, hubs] = await Promise.all([
+      Promise.all(servers.map(s => settle(s, s.sections()))),
+      settle(primary, primary.hubs()),
+    ]);
+    if (!hubs && failed === servers.length + 1) {
+      error('home load failed on every server');
+      if (!rows.length) setText(empty, 'Couldn\'t reach your Plex server' + (servers.length > 1 ? 's' : '') + '. Press OK to retry.');
+      return;
     }
+    const sections = [].concat.apply([], sectionLists.filter(Boolean));
+    buildNav(sections);
+    if (!hubs) {
+      if (!rows.length) setText(empty, 'Couldn\'t load from ' + primary.name + '. Press OK to retry.');
+      return;
+    }
+    setHubs(hubs);
+    store.set('homeCache', { servers: serverKey, sections, hubs: hubs.map(slimHub) });
   }
 
   const cached = store.get('homeCache');
-  if (cached && session.server && cached.server === session.server.id) {
+  if (cached && cached.servers === serverKey) {
     buildNav(cached.sections || []);
     setHubs(cached.hubs || []);
   } else {

@@ -4,18 +4,20 @@
 #   ./scripts/deploy.sh --dev         dev build: perf overlay, logs + remote control via tools/devserver.mjs
 #   ./scripts/deploy.sh --build-only  just produce build/app (no TV needed)
 #   ./scripts/deploy.sh --no-run      install but don't launch
+#   ./scripts/deploy.sh --bundle      bundle into one classic script (needed on Tizen 5.0 / 2019 TVs; or BUNDLE=1 in .env)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 [ -f "$ROOT/.env" ] || { echo "No .env yet. Run ./scripts/setup.sh first." >&2; exit 1; }
 set -a; source "$ROOT/.env"; set +a
 
-DEV=0; RUN=1; INSTALL=1
+DEV=0; RUN=1; INSTALL=1; BUNDLE="${BUNDLE:-0}"
 for arg in "$@"; do
   case "$arg" in
     --dev) DEV=1 ;;
     --no-run) RUN=0 ;;
     --build-only) INSTALL=0 ;;
+    --bundle) BUNDLE=1 ;;
   esac
 done
 
@@ -36,10 +38,20 @@ else
   rm -rf "$OUT/js/dev"
   sed -i.bak "s/^export const VERSION = .*/export const VERSION = '$VERSION';/" "$OUT/js/config.js" && rm "$OUT/js/config.js.bak"
 fi
-# Preload every module up front so the TV fetches them in parallel instead of
-# discovering the import graph one level at a time.
-PRELOADS=$(cd "$OUT" && find js -name '*.js' | sort | sed 's|.*|<link rel="modulepreload" href="&">|' | tr '\n' ' ')
-sed -i.bak "s|</head>|$PRELOADS</head>|" "$OUT/index.html" && rm "$OUT/index.html.bak"
+if [ "$BUNDLE" = 1 ]; then
+  # Tizen 5.0 (2019 TVs) can't import modules from file://, so roll everything into
+  # one classic script. The dev remote stays external in release builds (never loaded).
+  EXTERNAL=""; [ "$DEV" = 1 ] || EXTERNAL="--external:./dev/remote.js"
+  npx --yes esbuild@0.24 "$OUT/js/main.js" --bundle --format=iife --target=chrome63 $EXTERNAL \
+    --log-level=warning --outfile="$OUT/bundle.js"
+  rm -rf "$OUT/js" && mkdir "$OUT/js" && mv "$OUT/bundle.js" "$OUT/js/main.js"
+  sed -i.bak 's|<script type="module" src="js/main.js">|<script src="js/main.js">|' "$OUT/index.html" && rm "$OUT/index.html.bak"
+else
+  # Preload every module up front so the TV fetches them in parallel instead of
+  # discovering the import graph one level at a time.
+  PRELOADS=$(cd "$OUT" && find js -name '*.js' | sort | sed 's|.*|<link rel="modulepreload" href="&">|' | tr '\n' ' ')
+  sed -i.bak "s|</head>|$PRELOADS</head>|" "$OUT/index.html" && rm "$OUT/index.html.bak"
+fi
 echo "built $([ "$DEV" = 1 ] && echo dev || echo release) $VERSION → build/app"
 [ "$INSTALL" = 1 ] || exit 0
 

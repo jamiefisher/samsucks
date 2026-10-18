@@ -1,15 +1,31 @@
-// Search across the server. Focusing the input brings up Samsung's on-screen
+// Search across every server. Focusing the input brings up Samsung's on-screen
 // keyboard; results update as you type.
 import { h, setText, setTransform } from '../util/dom.js';
 import { Row } from '../ui/row.js';
 import { session } from '../session.js';
 import { openItem, playItem } from '../nav.js';
-import { error } from '../util/log.js';
+import { error, warn } from '../util/log.js';
 import * as icons from '../ui/icons.js';
 import { useAmbience } from '../ui/backdrop.js';
 
 const IME_DONE = 65376;
 const IME_CANCEL = 65385;
+
+// Every server at once; results of the same type share one row.
+async function searchAll(q) {
+  const lists = await Promise.all(session.servers.map(s => s.search(q).catch(e => {
+    warn('search failed on', s.name, e.message);
+    return [];
+  })));
+  const merged = [];
+  const byType = {};
+  lists.forEach(hubs => hubs.forEach(hub => {
+    const have = byType[hub.type];
+    if (have) have.Metadata = have.Metadata.concat(hub.Metadata);
+    else merged.push(byType[hub.type] = Object.assign({}, hub));
+  }));
+  return merged;
+}
 
 export function SearchScreen() {
   const el = h('div', 'screen search');
@@ -37,7 +53,7 @@ export function SearchScreen() {
     if (q.length < 2) { setRows([]); setText(status, ''); return; }
     setText(status, 'Searching…');
     try {
-      const hubs = await session.server.search(q);
+      const hubs = await searchAll(q);
       if (gen !== generation) return;
       setRows(hubs);
       setText(status, hubs.length ? '' : 'Nothing found for “' + q + '”');

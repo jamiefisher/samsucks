@@ -6,7 +6,7 @@ import { DEV } from '../config.js';
 import { h, setText, setTransform, toggleClass } from '../util/dom.js';
 import { createPlayer } from '../platform/player.js';
 import { setScreenSaver, supports4K } from '../platform/tizen.js';
-import { session } from '../session.js';
+import { serverOf } from '../session.js';
 import { clock, episodeLabel, uuid } from '../util/format.js';
 import * as icons from '../ui/icons.js';
 import * as router from '../router.js';
@@ -170,7 +170,7 @@ export function PlayerScreen(initial, { offset = null } = {}) {
   function report(state) {
     if (!item.ratingKey) return;
     if (DEV && window.__ss && window.__ss.muteTimeline) return;
-    session.server.timeline({
+    serverOf(item).timeline({
       ratingKey: item.ratingKey,
       key: '/library/metadata/' + item.ratingKey,
       state,
@@ -195,7 +195,7 @@ export function PlayerScreen(initial, { offset = null } = {}) {
   }
 
   async function open(atMs) {
-    const server = session.server;
+    const server = serverOf(item);
     const t0 = Date.now();
     started = false;
     toggleClass(spinner, 'on', true);
@@ -266,7 +266,7 @@ export function PlayerScreen(initial, { offset = null } = {}) {
     cueFor = subStream;
     const stream = subStream;
     cueTrack = null;
-    fetch(session.server.url(stream.key, { encoding: 'utf-8' }))
+    fetch(serverOf(item).url(stream.key, { encoding: 'utf-8' }))
       .then(r => r.text())
       .then(text => {
         if (cueFor !== stream || !alive) return;
@@ -282,7 +282,7 @@ export function PlayerScreen(initial, { offset = null } = {}) {
 
   async function start() {
     try {
-      const full = await session.server.metadata(item.ratingKey);
+      const full = await serverOf(item).metadata(item.ratingKey);
       if (!alive) return;
       item = full;
       duration = item.duration || duration;
@@ -413,7 +413,7 @@ export function PlayerScreen(initial, { offset = null } = {}) {
   }
 
   async function choose(col, opt) {
-    const server = session.server;
+    const server = serverOf(item);
     if (col === 0) audioStream = opt.stream;
     else subStream = opt.stream;
     server.selectStreams(part.id, {
@@ -451,7 +451,7 @@ export function PlayerScreen(initial, { offset = null } = {}) {
   // --- Ending -----------------------------------------------------------
 
   async function nextEpisode() {
-    const server = session.server;
+    const server = serverOf(item);
     const eps = await server.children(item.parentRatingKey);
     const i = eps.findIndex(e => e.ratingKey === item.ratingKey);
     if (i >= 0 && i < eps.length - 1) return eps[i + 1];
@@ -504,7 +504,7 @@ export function PlayerScreen(initial, { offset = null } = {}) {
     clearInterval(upnextTimer);
     clearInterval(cueTimer);
     player.destroy();
-    if (mode === 'hls') session.server.stopTranscode(playSession);
+    if (mode === 'hls') serverOf(item).stopTranscode(playSession);
     document.documentElement.classList.remove('playing');
     setScreenSaver(true);
     document.removeEventListener('visibilitychange', onVisibility);

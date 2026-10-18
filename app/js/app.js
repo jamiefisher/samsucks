@@ -2,7 +2,7 @@
 import { DEV, DEV_HOST, DEV_PLEX_URL, VERSION } from './config.js';
 import * as router from './router.js';
 import { isTizen, registerKeys } from './platform/tizen.js';
-import { session, reconnect, signOut } from './session.js';
+import { session, reconnect, signOut, needsDiscovery } from './session.js';
 import { HomeScreen } from './screens/home.js';
 import { LoginScreen } from './screens/login.js';
 import { initHud } from './ui/hud.js';
@@ -19,18 +19,17 @@ function goLogin() {
 }
 
 async function verify() {
-  // Home already painted from cache; make sure the saved connection still works.
+  // Home already painted from cache; make sure the saved connections still work.
+  const errors = await Promise.all(session.servers.map(s => s.get('/identity').then(() => null, e => e)));
+  const failed = errors.filter(Boolean);
+  if (!failed.length && !needsDiscovery) return;
+  if (failed.length === errors.length && failed.every(e => e.status === 401)) { signOut(); goLogin(); return; }
+  if (failed.length) warn('saved server unreachable, re-resolving', failed.map(e => e.message).join('; '));
   try {
-    await session.server.get('/identity');
-  } catch (e) {
-    if (e.status === 401) { signOut(); goLogin(); return; }
-    warn('saved server unreachable, re-resolving', e.message);
-    try {
-      await reconnect();
-      goHome();
-    } catch (err) {
-      if (err.status === 401) { signOut(); goLogin(); }
-    }
+    await reconnect();
+    goHome();
+  } catch (err) {
+    if (err.status === 401) { signOut(); goLogin(); }
   }
 }
 

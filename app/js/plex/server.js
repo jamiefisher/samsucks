@@ -3,6 +3,19 @@ import { request, withQuery, identity } from './client.js';
 
 const SUPPORTED_HUB_TYPES = { movie: 1, show: 1, episode: 1, season: 1, mixed: 1, clip: 1 };
 
+// Stamp everything a response lists with the server it came from, so screens can
+// find the right server for an item (session.serverOf). Only walks the listing
+// keys, not each item's Media/Genre/... children.
+function tag(node, id) {
+  if (Array.isArray(node)) { for (const n of node) tag(n, id); return; }
+  if (!node || typeof node !== 'object') return;
+  node._srv = id;
+  if (node.Metadata) tag(node.Metadata, id);
+  if (node.Hub) tag(node.Hub, id);
+  if (node.Directory) tag(node.Directory, id);
+  if (node.OnDeck) tag(node.OnDeck, id);
+}
+
 export class Server {
   constructor({ uri, token, name, id }) {
     this.uri = uri;
@@ -20,6 +33,7 @@ export class Server {
     }
     const json = await request(this.uri + path, { token: this.token, params });
     const data = json.MediaContainer || json;
+    tag(data, this.id);
     if (maxAge) this.cache.set(key, { t: Date.now(), data });
     return data;
   }
@@ -57,14 +71,35 @@ export class Server {
     return (mc.Hub || []).filter(h => h.size > 0 && SUPPORTED_HUB_TYPES[h.type] && h.Metadata);
   }
 
-  async items(sectionId, start, size, { sort = 'titleSort', type } = {}) {
-    const mc = await this.get('/library/sections/' + sectionId + '/all', {
+  async items(sectionId, start, size, { sort = 'titleSort', type, filters } = {}) {
+    const mc = await this.get('/library/sections/' + sectionId + '/all', Object.assign({
       sort, type,
       'X-Plex-Container-Start': start,
       'X-Plex-Container-Size': size,
       excludeFields: 'summary,tagline',
-    });
+    }, filters));
     return { total: mc.totalSize != null ? mc.totalSize : mc.size, items: mc.Metadata || [] };
+  }
+
+  // Values for one filter of a library (genre, decade, contentRating...), each as
+  // { title, params } where params go straight onto items(). Newer servers give
+  // each value a key like "/library/sections/1/all?genre=12"; older ones just "12".
+  async filterValues(sectionId, field, type) {
+    const mc = await this.get('/library/sections/' + sectionId + '/' + field, { type }, { maxAge: 600000 });
+    return (mc.Directory || []).map(d => {
+      const key = String(d.key);
+      const params = {};
+      const q = key.indexOf('?');
+      if (q !== -1) {
+        key.slice(q + 1).split('&').forEach(kv => {
+          const i = kv.indexOf('=');
+          if (i > 0) params[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1));
+        });
+      } else {
+        params[field] = key;
+      }
+      return { title: d.title, params };
+    });
   }
 
   async metadata(ratingKey) {

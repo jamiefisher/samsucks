@@ -64,13 +64,17 @@ function firstSuccess(promises) {
   });
 }
 
+// Every candidate is probed at once, but a better tier still wins: we only
+// settle for remote/relay once the faster tiers have all failed.
 export async function connect(resource) {
   const token = resource.accessToken;
-  for (const tier of candidateUris(resource)) {
+  const tiers = candidateUris(resource).map(tier => ({ tier, hit: firstSuccess(tier.map(uri => probe(uri, token, 4000))) }));
+  tiers.forEach(t => t.hit.catch(() => {}));
+  for (const { tier, hit } of tiers) {
     try {
-      const hit = await firstSuccess(tier.map(uri => probe(uri, token, 4000)));
-      log('connected to', resource.name, 'via', hit.uri, hit.ms + 'ms');
-      return hit.uri;
+      const won = await hit;
+      log('connected to', resource.name, 'via', won.uri, won.ms + 'ms');
+      return won.uri;
     } catch (e) {
       warn('connection tier failed', tier.join(', '));
     }

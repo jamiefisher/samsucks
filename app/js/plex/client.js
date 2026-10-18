@@ -57,10 +57,19 @@ export async function request(url, { method = 'GET', token, params, timeout = 15
   const headers = Object.assign({ Accept: 'application/json' }, identity());
   if (token) headers['X-Plex-Token'] = token;
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeout) : 0;
   const full = withQuery(url, params);
+  // Tizen 5.0 (Chromium 63) has no AbortController: stop waiting even if the
+  // request itself can't be cancelled, or a dead address hangs for ~35 s.
+  let timer = 0;
+  const expired = new Promise((resolve, reject) => {
+    timer = setTimeout(() => {
+      if (ctrl) ctrl.abort();
+      reject(new Error('Timed out: ' + full.split('?')[0]));
+    }, timeout);
+  });
+  expired.catch(() => {}); // a timeout after the race settled is nobody's problem
   try {
-    const res = await fetch(full, { method, headers, body, signal: ctrl ? ctrl.signal : undefined });
+    const res = await Promise.race([fetch(full, { method, headers, body, signal: ctrl ? ctrl.signal : undefined }), expired]);
     if (!res.ok) throw new HttpError(res.status, full);
     if (raw) return res;
     const text = await res.text();

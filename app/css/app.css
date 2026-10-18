@@ -80,14 +80,16 @@ html.playing .ambience { display: none; }
 .home-art {
   left: 576px; top: 0; width: 1344px; height: 756px;
   -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 42%), linear-gradient(to top, transparent 0%, #000 45%);
-  -webkit-mask-composite: source-in;
+  /* Second value is the bottom layer: Chromium 63 (Tizen 5.0) applies source-in to it too, against nothing, which hides the art. */
+  -webkit-mask-composite: source-in, source-over;
 }
 .home-art .hero-fade { background: linear-gradient(180deg, rgba(11, 13, 18, 0.55) 0%, transparent 22%), linear-gradient(90deg, rgba(11, 13, 18, 0.5) 0%, transparent 40%); }
 
 .detail-art {
   left: 0; top: 0; width: 1920px; height: 1080px;
   -webkit-mask-image: linear-gradient(to right, rgba(0, 0, 0, 0.18) 0%, #000 62%), linear-gradient(to top, rgba(0, 0, 0, 0.1) 0%, #000 55%);
-  -webkit-mask-composite: source-in;
+  /* Second value is the bottom layer: Chromium 63 (Tizen 5.0) applies source-in to it too, against nothing, which hides the art. */
+  -webkit-mask-composite: source-in, source-over;
   transition: opacity 400ms ease; will-change: opacity;
 }
 .detail-art .hero-fade {
@@ -129,6 +131,7 @@ html.playing .ambience { display: none; }
   font: 600 26px/1 var(--body); color: var(--dim); white-space: nowrap;
 }
 .nav-item span { display: block; padding-top: 1px; }
+.nav-item small { margin-left: 10px; font: 500 18px/1 var(--body); opacity: 0.7; }
 .nav-item.current { color: var(--cream); }
 /* Current section: small coral dot under the label. */
 .nav-item.current::after {
@@ -235,15 +238,40 @@ html.fast .row-track, html.fast .rows-track, html.fast .grid-track, html.fast .r
 /* ---------- library grid ---------- */
 
 .lib-head { position: absolute; top: 52px; left: 96px; right: 96px; display: flex; align-items: baseline; }
-.lib-title { font: 700 76px/1 var(--display); }
-.lib-count { margin-left: 24px; font: 500 26px var(--body); color: var(--dim); }
-.lib-sort { margin-left: auto; font: 500 24px var(--body); color: var(--dim); }
+.lib-title { font: 700 76px/1 var(--display); flex-shrink: 0; }
+.lib-count { margin-left: 24px; font: 500 26px var(--body); color: var(--dim); flex-shrink: 0; }
 .lib-focus {
-  position: absolute; top: 146px; left: 96px; width: 1300px;
+  margin-left: auto; padding-left: 40px; min-width: 0;
   font: 500 26px var(--body); color: var(--cream);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.lib-hint { position: absolute; top: 150px; right: 96px; font: 500 22px var(--body); color: var(--dim); }
+.library.in-bar .lib-focus { opacity: 0.5; }
+/* Focused title's art, dimmed behind the grid. The layer's opacity is fixed;
+   only the images inside cross-fade. */
+.lib-art { left: 0; top: 0; width: 1920px; height: 1080px; opacity: 0.32; }
+.lib-art .hero-fade { background: linear-gradient(0deg, rgba(11, 13, 18, 0.6) 0%, transparent 60%); }
+
+/* Filter bar: ▲ from the top row of the grid. */
+.lib-bar { position: absolute; top: 140px; left: 96px; right: 96px; height: 52px; white-space: nowrap; }
+.chip {
+  display: inline-block; height: 52px; padding: 0 26px; margin-right: 12px; border-radius: 26px;
+  font: 600 23px/52px var(--body); color: var(--dim); background: rgba(255, 247, 230, 0.06);
+}
+.chip.on { color: var(--cream); background: rgba(255, 76, 66, 0.28); }
+.chip.focus { background: var(--cream); color: var(--bg); }
+.lib-menu {
+  position: absolute; top: 202px; z-index: 5; width: 420px; padding: 8px; overflow: hidden;
+  border-radius: 20px; background: var(--raised); box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+}
+.lib-menu-track { will-change: transform; transition: transform 160ms var(--ease); }
+.lib-opt {
+  height: 60px; padding: 0 22px; border-radius: 14px;
+  font: 500 24px/60px var(--body); color: var(--cream);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.lib-opt.focus { background: var(--cream); color: var(--bg); }
+.lib-opt-none { color: var(--dim); }
+.lib-empty { position: absolute; top: 420px; left: 0; width: 1920px; text-align: center; font: 500 30px var(--body); color: var(--dim); }
 .key-yellow { display: inline-block; width: 18px; height: 18px; border-radius: 4px; background: #F5C518; vertical-align: -2px; }
 
 .grid { position: absolute; left: 88px; width: 1776px; overflow: hidden; }
@@ -288,6 +316,38 @@ html.fast .row-track, html.fast .rows-track, html.fast .grid-track, html.fast .r
 .pill.current { color: var(--cream); background: var(--faint); }
 .pill.focus { background: var(--cream); color: var(--bg); }
 .detail-episodes { position: relative; margin: 24px 0 0 -96px; width: 1920px; height: 330px; }
+.detail-cast { position: relative; margin: 36px 0 0 -96px; width: 1920px; height: 340px; }
+
+.detail-ratings { margin-top: 14px; height: 36px; white-space: nowrap; }
+.rating { display: inline-flex; align-items: center; height: 36px; margin-right: 30px; vertical-align: top; }
+.rating-icon svg { display: block; width: 32px; height: 32px; margin-right: 10px; }
+.rating-imdb svg, .rating-tmdb svg { width: 50px; height: 28px; }
+.rating b { font: 700 27px var(--body); color: var(--cream); }
+.rating small { margin-left: 10px; font: 500 20px var(--body); color: var(--dim); }
+
+/* People: round photos, round focus ring. */
+.tile-person .tile-frame { border-radius: 90px; }
+.tile-person .tile-ph { justify-content: center; align-items: center; padding: 0; text-align: center; font-size: 24px; }
+.tile-person .tile-cap, .tile-person .tile-sub { text-align: center; }
+.row-person .ring { border-radius: 98px; }
+
+/* ---------- person ---------- */
+
+.person-head { position: absolute; top: 80px; left: 96px; display: flex; align-items: center; }
+.person-photo {
+  width: 200px; height: 200px; border-radius: 100px; overflow: hidden; flex-shrink: 0;
+  background: var(--raised); font: 700 72px/200px var(--display); text-align: center; color: var(--dim);
+}
+.person-photo img { width: 200px; height: 200px; object-fit: cover; display: block; }
+.person-photo.empty img { display: none; }
+.person-text { margin-left: 44px; }
+.person-name { font: 700 96px/1 var(--display); }
+.person-sub { margin-top: 12px; font: 500 26px var(--body); color: var(--dim); }
+.person-focus {
+  position: absolute; top: 320px; left: 96px; width: 1500px;
+  font: 500 26px var(--body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.person-rows { position: absolute; left: 0; width: 1920px; bottom: 0; overflow: hidden; }
 
 /* ---------- player ---------- */
 

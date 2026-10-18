@@ -2,7 +2,7 @@
 // recycled; fill() only touches the DOM for fields that changed.
 import { h, setText, show, setTransform, toggleClass } from '../util/dom.js';
 import { load } from './images.js';
-import { session } from '../session.js';
+import { serverOf } from '../session.js';
 import { progress, episodeLabel } from '../util/format.js';
 
 export const KINDS = {
@@ -10,6 +10,7 @@ export const KINDS = {
   wide: { w: 400, h: 225 },
   grid: { w: 216, h: 324 },
   episode: { w: 384, h: 216 },
+  person: { w: 180, h: 180 },
 };
 
 export function createTile(kind, { caption = false } = {}) {
@@ -56,6 +57,7 @@ function subFor(item, kind) {
       : episodeLabel(item) + '  ' + item.title;
   }
   if (item.type === 'season') return item.leafCount ? item.leafCount + ' episodes' : '';
+  if (item.type === 'person') return item.role || '';
   return item.year || '';
 }
 
@@ -71,7 +73,7 @@ export function fillTile(tile, item) {
     return;
   }
   const kind = tile.kind;
-  const server = session.server;
+  const server = serverOf(item);
   const path = artFor(item, kind);
   // The web layer is 1920x1080, so tile size is exactly the pixels we need.
   load(tile.img, server ? server.image(path, tile.size.w, tile.size.h) : '');
